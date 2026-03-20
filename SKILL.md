@@ -233,3 +233,65 @@ If C drive drops below 1GB, this is an emergency:
 - Does NOT touch any `.env`, token, key, or secret files
 - Does NOT delete any git history or repository data
 - Does NOT delete files on D drive
+
+## User manual procedure: WSL Docker 虚拟磁盘压缩（释放 C 盘空间）
+
+**适用场景**：Docker 的 vhdx 虚拟磁盘文件越用越大，即使删了容器/镜像，C 盘空间也不会自动释放，需要手动压缩。
+
+**频率建议**：每季度一次，或 C 盘 < 10GB 时执行。
+
+### 第一步：关闭 Docker Desktop
+
+在开始菜单右下角托盘找到 Docker 图标，右键 → Quit Docker Desktop。如果关不掉，打开管理员 PowerShell 执行：
+```powershell
+Get-Process *docker* | Stop-Process -Force
+```
+
+### 第二步：关闭所有 WSL 分发
+
+```powershell
+wsl --shutdown
+```
+
+确认全部关了：
+```powershell
+wsl --list --running
+```
+必须显示"没有正在运行的分发"。如果还有，重复执行 `wsl --shutdown` 直到干净。
+
+### 第三步：用 diskpart 压缩虚拟磁盘
+
+以管理员身份打开 PowerShell，执行：
+```
+diskpart
+```
+
+在 diskpart 窗口里逐行输入：
+```
+select vdisk file="C:\Users\Lenovo\AppData\Local\Docker\wsl\disk\docker_data.vhdx"
+attach vdisk readonly
+compact vdisk
+detach vdisk
+exit
+```
+
+等待 compact 完成，可能需要几分钟。
+
+### 第四步：恢复 Docker
+
+在开始菜单搜索 Docker Desktop，双击打开即可。它会自动拉起 WSL 和所有容器。
+
+### 第五步：重启 OpenClaw 网关
+
+打开 WSL 终端执行：
+```bash
+cd ~/openclaw
+~/bin/docker compose -f docker-compose.yml -f docker-compose.wsl.yml -f docker-compose.agent-reach.yml up -d
+```
+
+### 注意事项
+
+- 压缩前必须确保没有任何程序占用 vhdx 文件，否则 diskpart 会报"另一个程序正在使用此文件"
+- 关键顺序是**先退 Docker Desktop，再 wsl --shutdown**
+- 整个过程中 OpenClaw 会完全停止，压缩完成并重启 Docker 后会自动恢复
+- 预计可回收 20-50G 空间（取决于历史删除量）
